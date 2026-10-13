@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">外屏时钟</string>
+    <string name="settings_title">外屏时钟 · 设置</string>
+
+    <!-- 通知 -->
+    <string name="notif_channel_name">外屏时钟常驻</string>
+    <string name="notif_channel_desc">前台服务所需的常驻通知（可在系统设置里关闭）</string>
+    <string name="notif_title">外屏时钟</string>
+    <string name="notif_text_running">监听中：充电合盖时自动显示</string>
+    <string name="notif_text_showing">外屏时钟显示中</string>
+    <string name="notif_action_toggle">显示 / 隐藏</string>
+    <string name="notif_action_settings">设置</string>
+
+    <!-- 分区 -->
+    <string name="sec_auto">自动弹出</string>
+    <string name="sec_perm">权限与授权</string>
+    <string name="sec_display">显示</string>
+    <string name="sec_behavior">行为</string>
+    <string name="sec_status">自检</string>
+
+    <!-- 自动弹出 -->
+    <string name="item_auto_launch">自动在外屏启动时钟</string>
+    <string name="item_auto_launch_desc">充电时合盖自动显示时钟</string>
+    <string name="item_show_mode">显示方式</string>
+    <string name="mode_auto">自动（先悬浮窗，失败再启动界面）</string>
+    <string name="mode_overlay">仅悬浮窗（不需要后台弹出权限）</string>
+    <string name="mode_activity">仅启动界面（需要后台弹出权限）</string>
+    <string name="item_ignore_hinge">忽略铰链角度，充电即显示</string>
+    <string name="item_ignore_hinge_desc">直板机或读不到铰链角度时打开</string>
+
+    <!-- 权限 -->
+    <string name="perm_overlay">悬浮窗权限</string>
+    <string name="perm_overlay_desc">充电时合盖自动显示时钟所必需</string>
+    <string name="perm_notify">通知权限</string>
+    <string name="perm_notify_desc">前台服务需要一条常驻通知条</string>
+    <string name="perm_boot">自启动（开机自动恢复）</string>
+    <string name="perm_boot_desc">不开的话，重启手机后自动弹出会失效</string>
+    <string name="perm_bg_popup">后台弹出界面</string>
+    <string name="perm_bg_popup_desc">HyperOS 专有；只选「仅悬浮窗」时不需要</string>
+    <string name="perm_battery">电池优化设为「无限制」</string>
+    <string name="perm_battery_desc">避免常驻服务被系统回收</string>
+    <string name="perm_dream">设为系统屏保（DreamService）</string>
+    <string name="perm_dream_desc">系统在充电闲置时自己拉起，最稳的一条路</string>
+    <string name="btn_grant">去授权</string>
+    <string name="btn_settings">去开启</string>
+    <string name="state_granted">已授权</string>
+    <string name="state_denied">未授权</string>
+
+    <!-- 显示 -->
+    <string name="item_clock_style">表盘样式</string>
+    <string name="style_analog">模拟表盘</string>
+    <string name="style_digital">数字时间</string>
+    <string name="item_show_seconds">显示秒</string>
+    <string name="item_use_24h">数字时间用 24 小时制</string>
+    <string name="item_show_lunar">显示农历</string>
+    <string name="item_show_calendar">显示日历面板</string>
+    <string name="item_show_status">显示状态行（充电 / 角度）</string>
+    <string name="item_burn_in">防烧屏像素偏移</string>
+    <string name="item_burn_in_desc">画面每 15 秒整体平移 1 像素，分散像素老化</string>
+    <string name="item_keep_on">保持屏幕常亮</string>
+    <string name="item_brightness">亮度（伪 AOD）</string>
+
+    <!-- 行为 -->
+    <string name="item_exit_on_unfold">展开后自动关闭</string>
+    <string name="item_exit_on_unplug">拔电后自动关闭</string>
+    <string name="item_hide_on_tap">点击时钟可关闭</string>
+    <string name="item_fold_angle">合盖判定角度</string>
+
+    <!-- 自检 -->
+    <string name="status_service">自动弹出服务</string>
+    <string name="status_service_on">运行中</string>
+    <string name="status_service_off">未运行</string>
+    <string name="status_charging">充电状态</string>
+    <string name="status_charging_on">充电中</string>
+    <string name="status_charging_off">未充电</string>
+    <string name="status_angle">铰链角度</string>
+    <string name="status_angle_none">本机没有该传感器</string>
+    <string name="status_angle_reading">读取中</string>
+    <string name="status_folded">合盖</string>
+    <string name="status_open">展开</string>
+    <string name="status_overlay">悬浮窗</string>
+    <string name="status_overlay_showing">显示中（显示器 %1$d）</string>
+    <string name="status_overlay_hidden">未显示</string>
+    <string name="status_trigger">上次自动弹出</string>
+    <string name="status_trigger_never">从未</string>
+    <string name="btn_test_overlay">测试悬浮窗显示</string>
+    <string name="btn_hide_overlay">隐藏测试悬浮窗</string>
+    <string name="btn_start_service">启动常驻服务</string>
+    <string name="btn_stop_service">停止常驻服务</string>
+
+    <string name="tip_title">提示</string>
+    <string name="tip_body">防烧屏配合纯黑背景与最低亮度，可长时间展示。\n若「自动弹出」不生效，优先检查：悬浮窗 → 自启动 → 电池无限制；仍不行就把「显示方式」改成「仅悬浮窗」。</string>
+    <string name="fold_hint">合盖</string>
+    <string name="open_hint">展开</string>
+    <string name="charging_hint">充电中</string>
+</resources>

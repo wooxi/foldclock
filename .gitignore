@@ -1,0 +1,23 @@
+# 构建产物
+build/
+gen/
+*.apk
+*.idsig
+*.zip
+
+# 签名密钥 —— 绝对不能提交
+keystore/
+*.jks
+*.keystore
+*.p12
+*.pem
+
+# 本地配置
+local.properties
+.idea/
+*.iml
+.gradle/
+
+# 系统
+.DS_Store
+Thumbs.db

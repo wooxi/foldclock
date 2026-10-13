@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="fc_bg">#FF000000</color>
+    <color name="fc_fg">#FFEDEDED</color>
+    <color name="fc_dim">#FF8A8A8A</color>
+    <color name="fc_faint">#FF3A3A3A</color>
+    <color name="fc_accent">#FFFF4D3D</color>
+    <color name="fc_panel">#FF0A0A0A</color>
+    <color name="ic_launcher_background">#FF0B0B0B</color>
+</resources>

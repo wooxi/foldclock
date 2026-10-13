@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.foldclock"
+    android:versionCode="16"
+    android:versionName="1.4.0">
+
+    <uses-sdk
+        android:minSdkVersion="32"
+        android:targetSdkVersion="35" />
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <uses-feature
+        android:name="android.hardware.sensor.hinge_angle"
+        android:required="false" />
+
+    <application
+        android:name=".App"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.FoldClock">
+
+        <!--
+          ★ v1.4.0 新增：向 HyperOS 声明「本应用允许在小尺寸外屏上运行」。
+          这三行抄自系统 App（MiuiScanner / MIUIDeskClock）里真实存在的写法：
+            <property name="android.window.PROPERTY_COMPAT_ALLOW_SMALL_COVER_SCREEN" value="1"/>
+            <property name="miui.continuity.policy" value="5"/>
+            <meta-data name="miui.supportFlipFullScreen" value="0"/>
+          v1.3.7 一条都没有声明，这也是它「合盖后在外屏上什么都不发生」的原因之一。
+          0 = 全屏铺满，1 = 不缩放，2 = 自定义缩放。
+        -->
+        <property
+            android:name="android.window.PROPERTY_COMPAT_ALLOW_SMALL_COVER_SCREEN"
+            android:value="1" />
+        <property
+            android:name="miui.continuity.policy"
+            android:value="5" />
+        <meta-data
+            android:name="miui.supportFlipFullScreen"
+            android:value="0" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|fontScale"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.FoldClock.Settings" />
+
+        <service
+            android:name=".AutoLaunchService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="cover-screen clock: watches charging state and hinge angle to show a clock on the foldable cover display" />
+        </service>
+
+        <service
+            android:name=".StandbyDreamService"
+            android:exported="true"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.dream"
+                android:resource="@xml/dream" />
+        </service>
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
