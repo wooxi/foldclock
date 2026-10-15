@@ -6,6 +6,7 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Surface;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -27,7 +28,7 @@ import java.util.Locale;
 
 /**
  * 设置 + 自检。整个界面代码搭建，不依赖 XML 布局。
- * 重点是「自检」区：把每一项权限的真实状态、充电状态、铰链角度、悬浮窗所在显示器
+ * 重点是「自检」区：把每一项权限的真实状态、充电状态、手机姿态、悬浮窗所在显示器
  * 都实时显示出来，这样「为什么没自动弹」一眼就能定位。
  */
 public class SettingsActivity extends Activity {
@@ -40,7 +41,7 @@ public class SettingsActivity extends Activity {
 
     private LinearLayout root;
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private HingeMonitor hinge;
+    private PostureMonitor posture;
 
     private TextView vService;
     private TextView vCharging;
@@ -63,8 +64,8 @@ public class SettingsActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        hinge = new HingeMonitor(this);
-        hinge.start();
+        posture = new PostureMonitor(this);
+        posture.start();
 
         ScrollView sv = new ScrollView(this);
         sv.setBackgroundColor(Color.BLACK);
@@ -100,7 +101,7 @@ public class SettingsActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        if (hinge != null) hinge.stop();
+        if (posture != null) posture.stop();
         super.onDestroy();
     }
 
@@ -406,17 +407,16 @@ public class SettingsActivity extends Activity {
                     charging ? C_OK : C_DIM);
         }
         if (vAngle != null) {
-            if (!hinge.available()) {
+            if (posture == null || !posture.available()) {
                 set(vAngle, getString(R.string.status_angle_none), C_DIM);
             } else {
-                float a = hinge.lastAngle();
-                if (a < 0f) {
+                int r = posture.lastRotation();
+                if (r < 0) {
                     set(vAngle, getString(R.string.status_angle_reading), C_DIM);
                 } else {
-                    boolean folded = a <= Prefs.foldAngleMax(this);
-                    set(vAngle, ((int) a) + "°  ·  "
-                            + getString(folded ? R.string.status_folded : R.string.status_open),
-                            folded ? C_ACCENT : C_DIM);
+                    boolean landscape = (r == Surface.ROTATION_90 || r == Surface.ROTATION_270);
+                    set(vAngle, getString(landscape ? R.string.status_landscape : R.string.status_portrait),
+                            landscape ? C_ACCENT : C_DIM);
                 }
             }
         }

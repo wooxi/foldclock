@@ -8,6 +8,7 @@ import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.Surface;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -23,7 +24,7 @@ public class MainActivity extends Activity {
     public static final String EXTRA_AUTO = "auto";
 
     private StandByView view;
-    private HingeMonitor hinge;
+    private PostureMonitor posture;
     private boolean autoShown;
     private boolean charging;
 
@@ -102,8 +103,8 @@ public class MainActivity extends Activity {
 
         // 自动亮起来的这种，展开就该自己关掉
         if (autoShown && Prefs.exitOnUnfold(this)) {
-            hinge = new HingeMonitor(this);
-            hinge.start();
+            posture = new PostureMonitor(this);
+            posture.start();
             watchUnfold();
         }
     }
@@ -118,23 +119,22 @@ public class MainActivity extends Activity {
             unregisterReceiver(powerReceiver);
         } catch (Throwable ignored) {
         }
-        if (hinge != null) {
-            hinge.stop();
-            hinge = null;
+        if (posture != null) {
+            posture.stop();
+            posture = null;
         }
     }
 
+    /** v1.4.2：不再看铰链角度，改看手机姿态 —— 竖过来了（用户拿走手机）就退出。 */
     private void watchUnfold() {
-        if (hinge == null) return;
-        hinge.request(1500L, new HingeMonitor.Callback() {
+        if (posture == null) return;
+        posture.request(1500L, new PostureMonitor.Callback() {
             @Override
-            public void onAngle(float angle) {
-                if (angle >= 0f) {
-                    charging = readCharging();
-                    updateStatus();
-                    if (angle >= Prefs.unfoldAngle(MainActivity.this)) {
-                        finish();
-                    }
+            public void onRotation(int rotation) {
+                charging = readCharging();
+                updateStatus();
+                if (rotation == Surface.ROTATION_0 || rotation == Surface.ROTATION_180) {
+                    finish();
                 }
             }
         });
@@ -184,8 +184,16 @@ public class MainActivity extends Activity {
     private void updateStatus() {
         if (view == null) return;
         if (!Prefs.showStatusLine(this)) return;
-        String angle = hinge == null ? "—" : String.valueOf((int) hinge.lastAngle());
-        view.setStatus((charging ? "充电中" : "未充电") + "  ·  角度 " + angle
+        String pose = "—";
+        if (posture != null) {
+            int r = posture.lastRotation();
+            if (r == Surface.ROTATION_0 || r == Surface.ROTATION_180) {
+                pose = "竖放";
+            } else if (r >= 0) {
+                pose = "横放";
+            }
+        }
+        view.setStatus((charging ? "充电中" : "未充电") + "  ·  姿态 " + pose
                 + (autoShown ? "  ·  自动" : "  ·  手动"));
     }
 

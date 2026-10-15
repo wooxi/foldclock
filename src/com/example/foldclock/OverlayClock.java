@@ -1,15 +1,20 @@
 package com.example.foldclock;
 
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.hardware.display.DisplayManager;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
+
+import com.example.foldclock.ui.StandByView;
 
 /**
  * 外屏悬浮窗。
@@ -25,10 +30,34 @@ public final class OverlayClock {
 
     private static final String TAG = "FoldClock/Overlay";
 
+    /** 出现/退出动画时长（跟 StandByView 里的常量保持一致） */
+    private static final long ENTER_MS = StandByView.ENTER_MS;
+    private static final long EXIT_MS = StandByView.EXIT_MS;
+    /**
+     * 压暗的节奏，参考 iPhone 息屏时钟：
+     * 插电后先用「当前亮度」把时钟淡进来（这段时间亮度不动），
+     * 过半秒再花近 2 秒慢慢沉到设定亮度 —— 而不是 300ms 内唰地变暗。
+     */
+    private static final long DIM_DELAY_MS = 500L;
+    private static final long DIM_MS = 1800L;
+    /** 收尾兜底：动画回调万一不来（被系统打断），也要在这个时间之后把窗口摘掉 */
+    private static final long EXIT_GUARD_MS = EXIT_MS + 150L;
+
     private final Context app;
+    private final Handler handler = new Handler(Looper.getMainLooper());
     private WindowManager wm;
     private View view;
+    /** 当前窗口参数（改亮度要复用它去 updateViewLayout） */
+    private WindowManager.LayoutParams params;
     private int displayId = -1;
+    /** 退出动画排队中的「摘窗口」任务 */
+    private Runnable pendingRemove;
+    /** 排队中的「开始压暗」任务 */
+    private Runnable pendingDim;
+    /** 正在跑的亮度动画（换向时要先掐掉，否则两个动画会打架） */
+    private ValueAnimator brightnessAnim;
+    /** 挂窗口前的屏幕亮度，退出时升回去，避免在 6% 亮度下淡出 */
+    private float restoreBrightness = -1f;
 
     public OverlayClock(Context c) {
         this.app = c.getApplicationContext();
@@ -51,6 +80,12 @@ public final class OverlayClock {
      * @return 是否成功挂上
      */
     public boolean show(View content, int brightnessPercent, boolean keepScreenOn) {
+        // 上一次的退出动画还在播：立刻摘掉，重新挂一块新的（否则会 return true 却什么都没显示）
+        if (pendingRemove != null) {
+            View old = view;
+            cancelPendingRemove();
+            removeNow(old);
+        }
         if (view != null) {
             return true;
         }
@@ -73,6 +108,13 @@ public final class OverlayClock {
         }
 
         WindowManager.LayoutParams lp = buildParams(brightnessPercent, keepScreenOn);
+        // 入场亮度的起点 = 当前屏幕亮度：直接写死目标亮度会「啪」一下变暗
+        float targetBrightness = -1f;
+        if (brightnessPercent > 0 && brightnessPercent < 100) {
+            targetBrightness = brightnessPercent / 100f;
+            restoreBrightness = currentBrightness();
+            lp.screenBrightness = restoreBrightness;
+        }
         WindowManager used = w;
         try {
             used.addView(content, lp);
@@ -95,27 +137,182 @@ public final class OverlayClock {
 
         this.wm = used;
         this.view = content;
+        this.params = lp;
         this.displayId = target == null ? 0 : target.getDisplayId();
+
+        try {
+            if (content instanceof StandByView) {
+                ((StandByView) content).playEnter();
+            } else {
+                content.setAlpha(0f);
+                content.animate().alpha(1f).setDuration(ENTER_MS).start();
+            }
+            if (targetBrightness > 0) {
+                final float dimTo = targetBrightness;
+                pendingDim = new Runnable() {
+                    @Override
+                    public void run() {
+                        pendingDim = null;
+                        rampBrightness(dimTo, DIM_MS);
+                    }
+                };
+                handler.postDelayed(pendingDim, DIM_DELAY_MS);
+            }
+        } catch (Throwable t) {
+            // 动画只是观感：出任何问题都退化成「直接出现」，不能影响显示本身
+            Log.w(TAG, "enter animation failed", t);
+            try {
+                content.setAlpha(1f);
+            } catch (Throwable ignored) {
+            }
+        }
+
         Log.i(TAG, "overlay shown on display " + displayId);
         return true;
     }
 
-    public void hide() {
+    /** 当前系统亮度（0~1）；读不到就给 0.5 兜底 */
+    private float currentBrightness() {
+        try {
+            int v = android.provider.Settings.System.getInt(
+                    app.getContentResolver(), android.provider.Settings.System.SCREEN_BRIGHTNESS);
+            if (v > 0) return Math.min(1f, v / 255f);
+        } catch (Throwable ignored) {
+        }
+        return 0.5f;
+    }
+
+    /** 窗口亮度渐变（每帧 updateViewLayout） */
+    private void rampBrightness(final float to, long durationMs) {
+        try {
+            rampBrightnessInner(to, durationMs);
+        } catch (Throwable t) {
+            Log.w(TAG, "brightness ramp failed", t);
+            // 退化成直接设目标亮度
+            try {
+                if (params != null && view != null && wm != null) {
+                    params.screenBrightness = to;
+                    wm.updateViewLayout(view, params);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private void rampBrightnessInner(final float to, long durationMs) {
+        final View v = view;
+        final WindowManager w = wm;
+        final WindowManager.LayoutParams lp = params;
+        if (v == null || w == null || lp == null) return;
+        if (brightnessAnim != null) {
+            brightnessAnim.cancel();
+            brightnessAnim = null;
+        }
+        float from = lp.screenBrightness > 0 ? lp.screenBrightness : currentBrightness();
+        ValueAnimator a = ValueAnimator.ofFloat(from, to);
+        a.setDuration(durationMs);
+        // 缓入缓出：起步不突兀、收尾不戛然而止
+        a.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+        a.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator an) {
+                if (view == null) return;
+                lp.screenBrightness = (Float) an.getAnimatedValue();
+                try {
+                    w.updateViewLayout(v, lp);
+                } catch (Throwable ignored) {
+                }
+            }
+        });
+        a.start();
+        brightnessAnim = a;
+    }
+
+    /** 带淡出动画的收起（自动隐藏走这条） */
+    public void hideAnimated() {
         if (view == null) {
+            wm = null;
+            displayId = -1;
+            return;
+        }
+        final View v = view;
+        if (pendingDim != null) {
+            handler.removeCallbacks(pendingDim);
+            pendingDim = null;
+        }
+        // 亮度先升回去，别在 6% 亮度下淡出
+        if (params != null && params.screenBrightness > 0) {
+            float to = restoreBrightness > 0 ? restoreBrightness : currentBrightness();
+            rampBrightness(to, EXIT_MS);
+        }
+        try {
+            if (v instanceof StandByView) {
+                ((StandByView) v).playExit();
+            } else {
+                v.animate().alpha(0f).setDuration(EXIT_MS).start();
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "exit animation failed", t);
+        }
+        pendingRemove = new Runnable() {
+            @Override
+            public void run() {
+                removeNow(v);
+            }
+        };
+        handler.postDelayed(pendingRemove, EXIT_GUARD_MS);
+        Log.i(TAG, "overlay hiding (animated)");
+    }
+
+    private void cancelPendingRemove() {
+        if (pendingRemove != null) {
+            handler.removeCallbacks(pendingRemove);
+            pendingRemove = null;
+        }
+    }
+
+    private void removeNow(View v) {
+        cancelPendingRemove();
+        if (pendingDim != null) {
+            handler.removeCallbacks(pendingDim);
+            pendingDim = null;
+        }
+        if (brightnessAnim != null) {
+            brightnessAnim.cancel();
+            brightnessAnim = null;
+        }
+        if (v == null) {
+            view = null;
             wm = null;
             displayId = -1;
             return;
         }
         try {
             if (wm != null) {
-                wm.removeViewImmediate(view);
+                wm.removeViewImmediate(v);
             }
         } catch (Throwable t) {
             Log.w(TAG, "removeView failed", t);
         }
-        view = null;
-        wm = null;
-        displayId = -1;
+        if (view == v) {
+            view = null;
+            wm = null;
+            params = null;
+            displayId = -1;
+        }
+    }
+
+    /** 立即摘掉，不播动画（服务停止 / 被销毁时用） */
+    public void hide() {
+        View v = view;
+        if (v == null) {
+            cancelPendingRemove();
+            wm = null;
+            params = null;
+            displayId = -1;
+            return;
+        }
+        removeNow(v);
     }
 
     private WindowManager.LayoutParams buildParams(int brightnessPercent, boolean keepScreenOn) {
@@ -178,6 +375,84 @@ public final class OverlayClock {
             Log.w(TAG, "getSize failed", t);
             return false;
         }
+    }
+
+    /**
+     * 现在是不是「只亮着外屏」= 合盖。v1.4.1 起用它取代铰链角度判定。
+     *
+     * 为什么要换掉铰链：这台机器合上以后 TYPE_HINGE_ANGLE 会飘到 38~48°
+     * （实测还在 ±2° 抖动），而代码里 foldAngleMax 默认 30° —— 于是同一台「合着」的手机，
+     * 系统那边 mIsFolded=true / mDeviceState=FOLDED，本 App 却判成「已展开」，
+     * 两套判定打架，结果就是插电不亮、时好时坏。
+     *
+     * 改问系统，两条路都走通：
+     *  ① 能看到两块屏：面积大的那块是内屏 —— 内屏不亮 ⇒ 合盖。
+     *  ② HyperOS 折叠时经常只把「当前那块屏」放进 App 的 display group
+     *     （实测日志就是 displays=0:ON，内屏压根不在列表里），这时只能看到一块屏，
+     *     就按尺寸认它是不是外屏：外屏最小边 1168px ≈ 425dp，内屏 1672px ≈ 608dp，
+     *     以 550dp 为界。展开时轮不到外屏亮，所以这个判法不会误弹。
+     */
+    public boolean isCoverScreenOnly() {
+        DisplayManager dm = (DisplayManager) app.getSystemService(Context.DISPLAY_SERVICE);
+        if (dm == null) {
+            return false;
+        }
+        Display[] all;
+        try {
+            all = dm.getDisplays();
+        } catch (Throwable t) {
+            return false;
+        }
+        if (all == null || all.length == 0) return false;
+
+        if (all.length >= 2) {
+            // ① 面积最大的那块 = 内屏；它不亮就是合盖
+            Display inner = null;
+            long innerArea = -1L;
+            for (Display d : all) {
+                if (d == null) continue;
+                try {
+                    if ((d.getFlags() & Display.FLAG_PRIVATE) != 0) continue;
+                } catch (Throwable ignored) {
+                    // getFlags 拿不到就不筛
+                }
+                Point p = new Point();
+                try {
+                    d.getSize(p);
+                } catch (Throwable t) {
+                    continue;
+                }
+                long area = (long) p.x * (long) p.y;
+                if (area > innerArea) {
+                    innerArea = area;
+                    inner = d;
+                }
+            }
+            if (inner == null) return false;
+            try {
+                return inner.getState() != Display.STATE_ON;
+            } catch (Throwable t) {
+                return false;
+            }
+        }
+
+        // ② 只看得到一块屏：它是外屏吗？
+        Display only = all[0];
+        if (only == null) return false;
+        Point p = new Point();
+        try {
+            only.getSize(p);
+        } catch (Throwable t) {
+            return false;
+        }
+        int minPx = Math.min(p.x, p.y);
+        int dpi = app.getResources().getDisplayMetrics().densityDpi;
+        if (dpi <= 0) dpi = 440;
+        int minDp = Math.round(minPx * 160f / dpi);
+        boolean coverOnly = minDp < 550;
+        Log.i(TAG, "只有一块屏 " + only.getDisplayId() + " " + p.x + "x" + p.y
+                + " (最小边 " + minDp + "dp) -> coverOnly=" + coverOnly);
+        return coverOnly;
     }
 
     /** 挑当前亮着的、非私有的显示器；多个时取 id 最小的那个。 */

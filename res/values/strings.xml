@@ -26,8 +26,8 @@
     <string name="mode_auto">自动（先悬浮窗，失败再启动界面）</string>
     <string name="mode_overlay">仅悬浮窗（不需要后台弹出权限）</string>
     <string name="mode_activity">仅启动界面（需要后台弹出权限）</string>
-    <string name="item_ignore_hinge">忽略铰链角度，充电即显示</string>
-    <string name="item_ignore_hinge_desc">直板机或读不到铰链角度时打开</string>
+    <string name="item_ignore_hinge">忽略折叠判定，充电即显示</string>
+    <string name="item_ignore_hinge_desc">展开着也显示（直板机 / 判不出内屏外屏时打开）</string>
 
     <!-- 权限 -->
     <string name="perm_overlay">悬浮窗权限</string>
@@ -74,11 +74,11 @@
     <string name="status_charging">充电状态</string>
     <string name="status_charging_on">充电中</string>
     <string name="status_charging_off">未充电</string>
-    <string name="status_angle">铰链角度</string>
+    <string name="status_angle">手机姿态</string>
     <string name="status_angle_none">本机没有该传感器</string>
-    <string name="status_angle_reading">读取中</string>
-    <string name="status_folded">合盖</string>
-    <string name="status_open">展开</string>
+    <string name="status_angle_reading">读取中 / 平放</string>
+    <string name="status_landscape">横着放（会显示时钟）</string>
+    <string name="status_portrait">竖着放（不显示）</string>
     <string name="status_overlay">悬浮窗</string>
     <string name="status_overlay_showing">显示中（显示器 %1$d）</string>
     <string name="status_overlay_hidden">未显示</string>

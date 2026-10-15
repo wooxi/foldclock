@@ -26,9 +26,11 @@
 
 | | |
 |---|---|
-| APK | **约 57 KB** |
+| APK | **约 61 KB** |
 | 依赖 | **零**（不用 AndroidX，不用 Compose，纯平台 API + 自绘 View） |
 | 代码 | 15 个类，约 2900 行 Java |
+
+当前版本：**v1.4.3**（versionCode 19）
 
 ## 安装
 
@@ -37,11 +39,23 @@
 3. 小米/HyperOS 可能提示「未经安全检测」，选**继续安装**
 4. 打开 App，按设置页引导依次授予：**悬浮窗** → **通知** → （小米）**自启动** → **电池无限制**
 
+> ### 小米 / HyperOS 必读：省电策略一定要设「无限制」
+> 系统里的 **Greezer** 会在 App 于后台待久之后把它冻结，**连插电广播都不投递**，
+> 表现就是「刚装好能用，过十几分钟插电就没反应了」。日志里能看到：
+> ```
+> BroadcastQueue: Greezer Denial: sending Intent { act=ACTION_POWER_CONNECTED ... }
+>    due to receiver ProcessRecord{...} need cached broadcast
+> ```
+> 光设 AOSP 的电池优化白名单 / 自启动是不够的，必须去
+> **设置 → 应用设置 → 应用管理 → 外屏时钟 → 省电策略 → 无限制**
+> （顺手把「自启动」「通知」也打开）。设完这个，"插电没反应"就不会再出现了。
+
 > 换签名会导致无法覆盖安装。本项目使用固定 release 密钥，后续版本可直接覆盖升级。
 
 ## 使用
 
-- **当桌面钟**：合盖 → 插电 → 外屏横过来就是时钟。拔电自动收起（可关）。
+- **当桌面钟**：合盖（微开的 A 形 / L 形立在桌上）→ 插电 → 外屏亮起横屏时钟。
+  **手机竖着拿或平放时不显示**；显示中转到竖屏 / 放平会立刻退出；拔电自动收起（可关）。
 - **手动开**：通知条上有「显示 / 隐藏」。
 - **当屏保**：设置 → 显示 → 屏保 → 选「外屏时钟」，系统会在充电闲置时自己拉起（这条路最稳，不需要任何特权）。
 - 右上角齿轮进设置；点画面任意处可关掉自动弹出的时钟。
@@ -83,10 +97,10 @@
 | `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SPECIAL_USE` | 常驻监听充电/折叠状态 |
 | `POST_NOTIFICATIONS` | 前台服务所需的常驻通知条（可关闭） |
 | `RECEIVE_BOOT_COMPLETED` | 开机后自动恢复常驻服务 |
-| `HIGH_SAMPLING_RATE_SENSORS` | 插电唤醒瞬间短时高频读取铰链角度 |
+| `HIGH_SAMPLING_RATE_SENSORS` | 插电唤醒瞬间短时高频读取手机姿态 |
 | `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | 引导用户把本应用设为「无限制」 |
 | `WAKE_LOCK` | 保持屏幕常亮 |
-| 传感器 `TYPE_HINGE_ANGLE` | 读取折叠角度，判断是否合盖 |
+| 传感器 `TYPE_ACCELEROMETER` | 读重力方向，判断手机是横着放还是平躺/竖着拿 |
 | `BIND_DREAM_SERVICE`（service 侧） | 作为系统屏保运行 |
 
 无网络、无位置、无通讯录、无存储读取。
@@ -133,4 +147,3 @@ sh build.sh
 ## 许可
 
 MIT，见 [LICENSE](LICENSE)。
-# foldclock
