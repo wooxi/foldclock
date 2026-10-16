@@ -50,6 +50,9 @@ public final class OverlayClock {
     /** 当前窗口参数（改亮度要复用它去 updateViewLayout） */
     private WindowManager.LayoutParams params;
     private int displayId = -1;
+    /** addView 之后回读的"真的上屏了吗"（addView 不抛异常 ≠ 用户能看见） */
+    private boolean verified = false;
+    private int verifiedDisplayId = -1;
     /** 退出动画排队中的「摘窗口」任务 */
     private Runnable pendingRemove;
     /** 排队中的「开始压暗」任务 */
@@ -71,6 +74,11 @@ public final class OverlayClock {
         return view != null;
     }
 
+    /** 窗口是不是真的挂在窗口树上：view != null 不代表系统没把它摘掉。 */
+    public boolean isAttached() {
+        return view != null && view.isAttachedToWindow();
+    }
+
     public int shownDisplayId() {
         return displayId;
     }
@@ -87,7 +95,11 @@ public final class OverlayClock {
             removeNow(old);
         }
         if (view != null) {
-            return true;
+            if (view.isAttachedToWindow()) return true;
+            // 窗口被系统摘掉了（显示器移除/重建、折叠时 display id 对调 —— 实机出现过），
+            // 但 view 引用还在。这里必须清干净重挂，否则就是"假装成功"：
+            // 服务记 visible=true、屏幕却什么都没有，而且之后永远不再重挂。
+            removeNow(view);
         }
         if (content == null) {
             return false;
@@ -139,6 +151,28 @@ public final class OverlayClock {
         this.view = content;
         this.params = lp;
         this.displayId = target == null ? 0 : target.getDisplayId();
+
+        // ★ 回读校验：addView 不抛异常不代表用户看得见（可能落在一块灭屏/被系统摘掉）。
+        //   这一条是为"自检面板显示已弹出、屏幕上却什么都没有"准备的。
+        verified = false;
+        verifiedDisplayId = -1;
+        final View checkView = content;
+        content.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Display d = checkView.getDisplay();
+                    verified = checkView.isAttachedToWindow() && d != null;
+                    verifiedDisplayId = verified ? d.getDisplayId() : -1;
+                    if (!verified) {
+                        Log.w(TAG, "overlay 没有真的上屏 attached="
+                                + checkView.isAttachedToWindow());
+                    }
+                } catch (Throwable t) {
+                    Log.w(TAG, "verify overlay failed", t);
+                }
+            }
+        }, 400L);
 
         try {
             if (content instanceof StandByView) {
@@ -316,8 +350,11 @@ public final class OverlayClock {
     }
 
     private WindowManager.LayoutParams buildParams(int brightnessPercent, boolean keepScreenOn) {
-        int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        // 刻意**不**加 FLAG_NOT_FOCUSABLE：
+        // 悬浮窗不在 Activity 栈里，返回键 / 侧滑手势只会派发给"有焦点的窗口"。
+        // 设成不可聚焦时，手势产生的 back 会落到后面的桌面，时钟就永远退不出去。
+        // 可聚焦 + StandByView.dispatchKeyEvent 才能收到 KEYCODE_BACK。
+        int flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
                 | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
                 | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED;
@@ -329,7 +366,9 @@ public final class OverlayClock {
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 flags,
-                PixelFormat.OPAQUE);
+                // 必须是 TRANSLUCENT：OPAQUE 的窗口做 alpha 动画只会淡成黑色，
+                // 看不到下面的系统界面。铭铭黑底是靠内容自己画的，不影响观感。
+                PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.START;
         try {
             lp.layoutInDisplayCutoutMode =
@@ -455,8 +494,73 @@ public final class OverlayClock {
         return coverOnly;
     }
 
-    /** 挑当前亮着的、非私有的显示器；多个时取 id 最小的那个。 */
-    private Display pickDisplay() {        DisplayManager dm = (DisplayManager) app.getSystemService(Context.DISPLAY_SERVICE);
+    /** 给自检页看的：重算一次 coverOnly 的判定依据，压成一句话。 */
+    public String coverReason(Context c) {
+        DisplayManager dm = (DisplayManager) app.getSystemService(Context.DISPLAY_SERVICE);
+        if (dm == null) return "no-dm";
+        Display[] all;
+        try {
+            all = dm.getDisplays();
+        } catch (Throwable t) {
+            return "ex";
+        }
+        if (all == null || all.length == 0) return "0disp";
+        if (all.length >= 2) {
+            Display inner = null;
+            long innerArea = -1L;
+            for (Display d : all) {
+                if (d == null) continue;
+                try {
+                    if ((d.getFlags() & Display.FLAG_PRIVATE) != 0) continue;
+                } catch (Throwable ignored) {
+                }
+                Point p = new Point();
+                try {
+                    d.getSize(p);
+                } catch (Throwable t) {
+                    continue;
+                }
+                long a = (long) p.x * (long) p.y;
+                if (a > innerArea) {
+                    innerArea = a;
+                    inner = d;
+                }
+            }
+            if (inner == null) return all.length + "disp no-inner";
+            int st;
+            try {
+                st = inner.getState();
+            } catch (Throwable t) {
+                st = -999;
+            }
+            return all.length + "disp inner" + inner.getDisplayId()
+                    + "=" + (st == -999 ? "?" : String.valueOf(st));
+        }
+        Display only = all[0];
+        Point p = new Point();
+        try {
+            only.getSize(p);
+        } catch (Throwable t) {
+            return "1disp ex";
+        }
+        int minPx = Math.min(p.x, p.y);
+        int dpi = app.getResources().getDisplayMetrics().densityDpi;
+        if (dpi <= 0) dpi = 440;
+        return "1disp minDp=" + Math.round(minPx * 160f / dpi);
+    }
+
+    /**
+     * 挑一块能画的屏。
+     *
+     * 实机教训（E 系列取证）：
+     *  - 旧版只认 STATE_ON：外屏处于 doze/AOD 或系统只是没报 ON 时直接挑不到，
+     *    然后静默退回默认屏，可能挂到一块灭着的内屏上 —— 表现为"记成已弹出，但屏幕是黑的"。
+     *    所以这里放宽到"只要不是 OFF"。
+     *  - 旧版取 id 最小的那块：折叠时 display id 会对调，落点不可靠。
+     *    改成优先"不是面积最大的那块"（面积最大 = 内屏），也就是优先外屏。
+     */
+    private Display pickDisplay() {
+        DisplayManager dm = (DisplayManager) app.getSystemService(Context.DISPLAY_SERVICE);
         if (dm == null) {
             return null;
         }
@@ -469,7 +573,10 @@ public final class OverlayClock {
         if (all == null) {
             return null;
         }
-        Display best = null;
+
+        Display biggest = null;      // 面积最大 = 内屏
+        long biggestArea = -1L;
+        Display smallest = null;     // 非最大里 id 最小的 = 优先外屏
         for (Display d : all) {
             if (d == null) continue;
             int state;
@@ -478,17 +585,59 @@ public final class OverlayClock {
             } catch (Throwable t) {
                 continue;
             }
-            if (state != Display.STATE_ON) continue;
+            if (state == Display.STATE_OFF) continue;
             try {
                 if ((d.getFlags() & Display.FLAG_PRIVATE) != 0) continue;
             } catch (Throwable ignored) {
                 // getFlags 拿不到就不筛
             }
+            Point p = new Point();
+            long area = 0L;
+            try {
+                d.getSize(p);
+                area = (long) p.x * (long) p.y;
+            } catch (Throwable ignored) {
+            }
+            if (area > biggestArea) {
+                biggestArea = area;
+                biggest = d;
+            }
+            if (smallest == null || d.getDisplayId() < smallest.getDisplayId()) {
+                smallest = d;
+            }
+        }
+        if (smallest == null) return null;
+        if (biggest == null || smallest == biggest) return smallest;
+        // 把"最大那块"排除后，再取 id 最小的
+        Display best = null;
+        for (Display d : all) {
+            if (d == null || d == biggest) continue;
+            try {
+                if (d.getState() == Display.STATE_OFF) continue;
+                if ((d.getFlags() & Display.FLAG_PRIVATE) != 0) continue;
+            } catch (Throwable ignored) {
+            }
             if (best == null || d.getDisplayId() < best.getDisplayId()) {
                 best = d;
             }
         }
-        return best;
+        return best != null ? best : smallest;
+    }
+
+    /** 已经显示时，姿态变了就地把内容转过去（否则会一直保持插电那一刻的方向）。 */
+    public void updateRotation(int rotation) {
+        if (view instanceof StandByView) {
+            ((StandByView) view).setDesiredRotation(rotation);
+        }
+    }
+
+    /** 上一次 addView 之后回读的"真的上屏了吗"。 */
+    public boolean verified() {
+        return verified;
+    }
+
+    public int verifiedDisplayId() {
+        return verifiedDisplayId;
     }
 
     /** 给自检页看的：当前有几块屏、都是什么状态。 */

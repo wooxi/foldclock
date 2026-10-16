@@ -43,12 +43,11 @@ public class SettingsActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private PostureMonitor posture;
 
-    private TextView vService;
-    private TextView vCharging;
-    private TextView vAngle;
-    private TextView vOverlay;
-    private TextView vDisplays;
-    private TextView vTrigger;
+    /** 返回键那条路已经发过 RESUME 就不再在 onDestroy 里发一次 */
+    private boolean resumeSent;
+
+    private TextView vDiag;
+    private TextView vVerdict;
     private TextView vOverlayPerm;
     private TextView vNotiPerm;
     private TextView vBattery;
@@ -67,6 +66,18 @@ public class SettingsActivity extends Activity {
         posture = new PostureMonitor(this);
         posture.start();
 
+        // 声明本 Activity 自己的开/关转场为"无动画"。
+        // 主题里的 windowAnimationStyle、启动方的 ActivityOptions 在某些 ROM（含 HyperOS）
+        // 上会被忽略，而这个 API 是 Activity 自己声明、优先级更高。
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            try {
+                overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0);
+                overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0);
+            } catch (Throwable t) {
+                android.util.Log.w("FoldClock/Diag", "overrideActivityTransition failed", t);
+            }
+        }
+
         ScrollView sv = new ScrollView(this);
         sv.setBackgroundColor(Color.BLACK);
         root = new LinearLayout(this);
@@ -82,8 +93,40 @@ public class SettingsActivity extends Activity {
         buildPermissionSection();
         buildDisplaySection();
         buildBehaviorSection();
-        buildStatusSection();
-        buildTip();
+        buildAboutSection();
+        buildDiag();
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        // Android 13+ 通知要运行时授权：没有通知权限，常驻通知不显示，
+        // 锁屏用的「全屏通知」也会被系统直接丢掉 → 锁屏场景彻底失效。
+        // 主动申请一次（系统只会弹一次；拒绝后仍可从设置页里的权限入口去开）。
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            try {
+                if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                        != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(
+                            new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 0x91);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        // 悬浮窗永远画在所有 Activity 之上：设置页一出现就得把时钟收起来。
+        if (AutoLaunchService.isRunning) {
+            AutoLaunchService.onSettingsShown(this);
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        // 只是不再可见（可能是跳去系统权限页，也可能按了 Home）。
+        // 服务那边给几秒宽限；若真的离开了就让位状态自动失效。
+        if (AutoLaunchService.isRunning) {
+            AutoLaunchService.onSettingsHidden(this);
+        }
+        super.onStop();
     }
 
     @Override
@@ -99,9 +142,30 @@ public class SettingsActivity extends Activity {
         super.onPause();
     }
 
+    /**
+     * 返回键：**先把时钟显示出来，再关闭设置页**。
+     *
+     * 如果不这样做，顺序会变成「设置页关掉 → 露出系统页面 → 几百毫秒后悬浮窗才挂上」，
+     * 中间那一下系统页面闪烁就是用户看到的"突兀"。提前挂上悬浮窗，设置页的退场动画
+     * 整段都在时钟后面，用户感知就是"按返回 → 时钟"。
+     */
+    @Override
+    public void onBackPressed() {
+        if (AutoLaunchService.isRunning && !resumeSent) {
+            resumeSent = true;
+            AutoLaunchService.onSettingsClosed(this);
+        }
+        super.onBackPressed();
+    }
+
     @Override
     protected void onDestroy() {
         if (posture != null) posture.stop();
+        // 彻底离开（兜底路径）：解除让位 + 重新评估。
+        // resumeSent：返回键那条路已经发过就不再发，免得日志里出现两次。
+        if (AutoLaunchService.isRunning && !resumeSent) {
+            AutoLaunchService.onSettingsClosed(this);
+        }
         super.onDestroy();
     }
 
@@ -117,6 +181,122 @@ public class SettingsActivity extends Activity {
         root.addView(space(dp(8)));
     }
 
+    /**
+     * 一屏自诊：等宽、高密度、机器可读，截图这一块就够定位；底部单独一行给结论码 + 处置。
+     * 字段含义见 Diag 类注释（全部来自实机取证）。
+     */
+    /**
+     * 关于：只显示版本 + 一个"打开发布页"按钮。
+     * 刻意不做 App 内检查更新 —— 那需要 INTERNET 权限，会推翻"系统层面无法联网"这条。
+     * 浏览器自己去联网，本 App 依旧零网络权限。
+     */
+    private void buildAboutSection() {
+        root.addView(section(getString(R.string.sec_about)));
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        box.setPadding(0, dp(10), 0, dp(10));
+
+        TextView t = new TextView(this);
+        t.setText(getString(R.string.about_version, versionText()));
+        t.setTextColor(C_FG);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        box.addView(t, weight());
+
+        Button b = new Button(this);
+        b.setText(R.string.btn_open_release);
+        b.setAllCaps(false);
+        b.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    startActivity(new android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(getString(R.string.release_url))));
+                } catch (Throwable t) {
+                    android.util.Log.w("FoldClock/Diag", "open release page failed", t);
+                }
+            }
+        });
+        box.addView(b);
+        root.addView(box, matchWrap());
+    }
+
+    /** "1.4.3(19)" */
+    private String versionText() {
+        try {
+            android.content.pm.PackageInfo pi =
+                    getPackageManager().getPackageInfo(getPackageName(), 0);
+            long vc = android.os.Build.VERSION.SDK_INT >= 28
+                    ? pi.getLongVersionCode() : pi.versionCode;
+            return pi.versionName + "(" + vc + ")";
+        } catch (Throwable t) {
+            return "?";
+        }
+    }
+
+    private void buildDiag() {
+        root.addView(section("诊断快照 · 截这一块"));
+
+        vDiag = new TextView(this);
+        vDiag.setTextColor(C_FG);
+        vDiag.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f);
+        vDiag.setTypeface(Typeface.MONOSPACE);
+        vDiag.setLineSpacing(0f, 1.05f);
+        vDiag.setTextIsSelectable(true);
+        vDiag.setPadding(dp(8), dp(8), dp(8), dp(8));
+        vDiag.setBackgroundColor(0xFF101010);
+        root.addView(vDiag, matchWrap());
+
+        vVerdict = new TextView(this);
+        vVerdict.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        vVerdict.setTypeface(Typeface.DEFAULT_BOLD);
+        vVerdict.setPadding(dp(8), dp(6), dp(8), dp(6));
+        root.addView(vVerdict, matchWrap());
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        Button copy = new Button(this);
+        copy.setText("复制诊断信息");
+        copy.setAllCaps(false);
+        copy.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                            getSystemService(CLIPBOARD_SERVICE);
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                            "foldclock-diag", Diag.fullText(SettingsActivity.this, posture)));
+                } catch (Throwable t) {
+                    android.util.Log.w("FoldClock/Diag", "copy failed", t);
+                }
+            }
+        });
+        Button share = new Button(this);
+        share.setText("分享诊断信息");
+        share.setAllCaps(false);
+        share.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    android.content.Intent i = new android.content.Intent(
+                            android.content.Intent.ACTION_SEND);
+                    i.setType("text/plain");
+                    i.putExtra(android.content.Intent.EXTRA_SUBJECT, "FoldClock 自检");
+                    i.putExtra(android.content.Intent.EXTRA_TEXT,
+                            Diag.fullText(SettingsActivity.this, posture));
+                    startActivity(android.content.Intent.createChooser(i, "分享诊断信息"));
+                } catch (Throwable t) {
+                    android.util.Log.w("FoldClock/Diag", "share failed", t);
+                }
+            }
+        });
+        row.addView(copy, weight());
+        row.addView(share, weight());
+        root.addView(row, matchWrap());
+    }
+
     private void buildAutoSection() {
         root.addView(section(getString(R.string.sec_auto)));
 
@@ -130,6 +310,9 @@ public class SettingsActivity extends Activity {
                         Prefs.setAutoLaunch(SettingsActivity.this, checked);
                         if (checked) {
                             AutoLaunchService.start(SettingsActivity.this);
+                            // 服务可能是刚被拉起来的（内部状态重置了），这里再声明一次
+                            // "设置页在前台"，免得时钟立刻弹出来盖住当前页面。
+                            AutoLaunchService.onSettingsShown(SettingsActivity.this);
                         } else {
                             AutoLaunchService.stop(SettingsActivity.this);
                         }
@@ -222,78 +405,11 @@ public class SettingsActivity extends Activity {
     private void buildDisplaySection() {
         root.addView(section(getString(R.string.sec_display)));
 
-        root.addView(radioRow(
-                getString(R.string.item_clock_style),
-                new String[]{getString(R.string.style_analog), getString(R.string.style_digital)},
-                Prefs.clockStyle(this),
-                new OnPick() {
-                    @Override
-                    public void onPick(int index) {
-                        Prefs.setClockStyle(SettingsActivity.this, index);
-                    }
-                }));
-
         root.addView(sliderRow(getString(R.string.item_brightness),
                 1, 100, Prefs.brightness(this), new OnValue() {
                     @Override
                     public void onValue(int value) {
                         Prefs.setBrightness(SettingsActivity.this, value);
-                    }
-                }));
-
-        root.addView(switchRow(getString(R.string.item_show_seconds), null,
-                Prefs.showSeconds(this), new CompoundButton.OnCheckedChangeListener() {
-                    @Override
-                    public void onCheckedChanged(CompoundButton b, boolean checked) {
-                        Prefs.setShowSeconds(SettingsActivity.this, checked);
-                    }
-                }));
-
-        root.addView(switchRow(getString(R.string.item_use_24h), null,
-                Prefs.use24h(this), new CompoundButton.OnCheckedChangeListener() {
-                    @Override
-                    public void onCheckedChanged(CompoundButton b, boolean checked) {
-                        Prefs.setUse24h(SettingsActivity.this, checked);
-                    }
-                }));
-
-        root.addView(switchRow(getString(R.string.item_show_lunar), null,
-                Prefs.showLunar(this), new CompoundButton.OnCheckedChangeListener() {
-                    @Override
-                    public void onCheckedChanged(CompoundButton b, boolean checked) {
-                        Prefs.setShowLunar(SettingsActivity.this, checked);
-                    }
-                }));
-
-        root.addView(switchRow(getString(R.string.item_show_calendar), null,
-                Prefs.showCalendar(this), new CompoundButton.OnCheckedChangeListener() {
-                    @Override
-                    public void onCheckedChanged(CompoundButton b, boolean checked) {
-                        Prefs.setShowCalendar(SettingsActivity.this, checked);
-                    }
-                }));
-
-        root.addView(switchRow(getString(R.string.item_show_status), null,
-                Prefs.showStatusLine(this), new CompoundButton.OnCheckedChangeListener() {
-                    @Override
-                    public void onCheckedChanged(CompoundButton b, boolean checked) {
-                        Prefs.setShowStatusLine(SettingsActivity.this, checked);
-                    }
-                }));
-
-        root.addView(switchRow(getString(R.string.item_burn_in), getString(R.string.item_burn_in_desc),
-                Prefs.burnIn(this), new CompoundButton.OnCheckedChangeListener() {
-                    @Override
-                    public void onCheckedChanged(CompoundButton b, boolean checked) {
-                        Prefs.setBurnIn(SettingsActivity.this, checked);
-                    }
-                }));
-
-        root.addView(switchRow(getString(R.string.item_keep_on), null,
-                Prefs.keepScreenOn(this), new CompoundButton.OnCheckedChangeListener() {
-                    @Override
-                    public void onCheckedChanged(CompoundButton b, boolean checked) {
-                        Prefs.setKeepScreenOn(SettingsActivity.this, checked);
                     }
                 }));
     }
@@ -316,109 +432,19 @@ public class SettingsActivity extends Activity {
                         Prefs.setExitOnUnplug(SettingsActivity.this, checked);
                     }
                 }));
-
-        root.addView(switchRow(getString(R.string.item_hide_on_tap), null,
-                Prefs.hideOnTap(this), new CompoundButton.OnCheckedChangeListener() {
-                    @Override
-                    public void onCheckedChanged(CompoundButton b, boolean checked) {
-                        Prefs.setHideOnTap(SettingsActivity.this, checked);
-                    }
-                }));
-    }
-
-    private void buildStatusSection() {
-        root.addView(section(getString(R.string.sec_status)));
-
-        vService = addStatusRow(getString(R.string.status_service));
-        vCharging = addStatusRow(getString(R.string.status_charging));
-        vAngle = addStatusRow(getString(R.string.status_angle));
-        vOverlay = addStatusRow(getString(R.string.status_overlay));
-        vDisplays = addStatusRow("显示器");
-        vTrigger = addStatusRow(getString(R.string.status_trigger));
-
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setPadding(0, dp(8), 0, 0);
-
-        Button test = new Button(this);
-        test.setText(R.string.btn_test_overlay);
-        test.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                AutoLaunchService.sendCommand(SettingsActivity.this, AutoLaunchService.ACTION_SHOW);
-            }
-        });
-        Button hide = new Button(this);
-        hide.setText(R.string.btn_hide_overlay);
-        hide.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                AutoLaunchService.sendCommand(SettingsActivity.this, AutoLaunchService.ACTION_HIDE);
-            }
-        });
-        row.addView(test, weight());
-        row.addView(hide, weight());
-        root.addView(row, matchWrap());
-
-        LinearLayout row2 = new LinearLayout(this);
-        row2.setOrientation(LinearLayout.HORIZONTAL);
-        Button start = new Button(this);
-        start.setText(R.string.btn_start_service);
-        start.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                AutoLaunchService.start(SettingsActivity.this);
-            }
-        });
-        Button stop = new Button(this);
-        stop.setText(R.string.btn_stop_service);
-        stop.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                AutoLaunchService.stop(SettingsActivity.this);
-            }
-        });
-        row2.addView(start, weight());
-        row2.addView(stop, weight());
-        root.addView(row2, matchWrap());
-    }
-
-    private void buildTip() {
-        TextView t = new TextView(this);
-        t.setText(R.string.tip_body);
-        t.setTextColor(C_DIM);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        t.setPadding(0, dp(20), 0, 0);
-        t.setLineSpacing(dp(4), 1f);
-        root.addView(t, matchWrap());
     }
 
     // ---------------- 状态刷新 ----------------
 
     private void refreshStatus() {
-        if (vService != null) {
-            boolean running = AutoLaunchService.isRunning;
-            set(vService, getString(running ? R.string.status_service_on : R.string.status_service_off),
-                    running ? C_OK : C_BAD);
+        if (vDiag != null) {
+            vDiag.setText(Diag.snapshot(this, posture));
         }
-        if (vCharging != null) {
-            boolean charging = readCharging();
-            set(vCharging, getString(charging ? R.string.status_charging_on : R.string.status_charging_off),
-                    charging ? C_OK : C_DIM);
-        }
-        if (vAngle != null) {
-            if (posture == null || !posture.available()) {
-                set(vAngle, getString(R.string.status_angle_none), C_DIM);
-            } else {
-                int r = posture.lastRotation();
-                if (r < 0) {
-                    set(vAngle, getString(R.string.status_angle_reading), C_DIM);
-                } else {
-                    boolean landscape = (r == Surface.ROTATION_90 || r == Surface.ROTATION_270);
-                    set(vAngle, getString(landscape ? R.string.status_landscape : R.string.status_portrait),
-                            landscape ? C_ACCENT : C_DIM);
-                }
-            }
+        if (vVerdict != null) {
+            String v = Diag.verdict(this);
+            boolean ok = Diag.OK.equals(v);
+            vVerdict.setText(v + "  " + Diag.hint(this, v));
+            vVerdict.setTextColor(ok ? C_OK : C_BAD);
         }
         if (vOverlayPerm != null) {
             boolean ok = Perms.canDrawOverlays(this);
@@ -434,26 +460,6 @@ public class SettingsActivity extends Activity {
             boolean ok = Perms.ignoringBatteryOptimizations(this);
             set(vBattery, getString(ok ? R.string.state_granted : R.string.state_denied),
                     ok ? C_OK : C_BAD);
-        }
-        if (vOverlay != null) {
-            if (AutoLaunchService.overlayShowing) {
-                set(vOverlay, getString(R.string.status_overlay_showing, AutoLaunchService.overlayDisplay), C_OK);
-            } else {
-                set(vOverlay, getString(R.string.status_overlay_hidden), C_DIM);
-            }
-        }
-        if (vDisplays != null) {
-            set(vDisplays, OverlayClock.describeDisplays(this), C_DIM);
-        }
-        if (vTrigger != null) {
-            long t = Prefs.lastTrigger(this);
-            if (t <= 0) {
-                set(vTrigger, getString(R.string.status_trigger_never), C_DIM);
-            } else {
-                String when = new SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(new Date(t));
-                String why = Prefs.lastTriggerReason(this);
-                set(vTrigger, TextUtils.isEmpty(why) ? when : when + "  (" + why + ")", C_DIM);
-            }
         }
     }
 
@@ -625,26 +631,6 @@ public class SettingsActivity extends Activity {
         b.setOnClickListener(l);
         box.addView(b);
         root.addView(box, matchWrap());
-    }
-
-    private TextView addStatusRow(String label) {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.HORIZONTAL);
-        box.setPadding(0, dp(6), 0, dp(6));
-
-        TextView l = new TextView(this);
-        l.setText(label);
-        l.setTextColor(C_DIM);
-        l.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        box.addView(l, weight());
-
-        TextView v = new TextView(this);
-        v.setTextColor(C_DIM);
-        v.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        v.setGravity(Gravity.END);
-        box.addView(v, weight());
-        root.addView(box, matchWrap());
-        return v;
     }
 
     private View space(int h) {

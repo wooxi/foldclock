@@ -15,5 +15,26 @@
         <item name="android:colorBackground">@color/fc_bg</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:statusBarColor">@color/fc_bg</item>
+        <!--
+          不要系统的"从右滑入"转场：滑动过程中会露出底下的系统页面。
+          直接切页（@null = 无动画），配合时钟自身的淡出就是干净的交叉过渡。
+        -->
+        <item name="android:windowAnimationStyle">@style/FoldClockAnimNone</item>
+    </style>
+
+    <style name="FoldClockAnimNone" parent="">
+        <item name="android:activityOpenEnterAnimation">@null</item>
+        <item name="android:activityOpenExitAnimation">@null</item>
+        <item name="android:activityCloseEnterAnimation">@null</item>
+        <item name="android:activityCloseExitAnimation">@null</item>
+        <!-- 从悬浮窗（服务）拉起设置页 = 把本 App 的 task 切到前台，走的是任务级转场 -->
+        <item name="android:taskOpenEnterAnimation">@null</item>
+        <item name="android:taskOpenExitAnimation">@null</item>
+        <item name="android:taskCloseEnterAnimation">@null</item>
+        <item name="android:taskCloseExitAnimation">@null</item>
+        <item name="android:taskToFrontEnterAnimation">@null</item>
+        <item name="android:taskToFrontExitAnimation">@null</item>
+        <item name="android:taskToBackEnterAnimation">@null</item>
+        <item name="android:taskToBackExitAnimation">@null</item>
     </style>
 </resources>

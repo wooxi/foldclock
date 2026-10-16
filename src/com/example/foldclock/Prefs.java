@@ -96,78 +96,55 @@ public final class Prefs {
         putBoolean(c, "exit_on_unplug", v);
     }
 
+    /**
+     * 点击时钟关闭：固定 false，不再做这个开关。
+     * 退出的正常方式是系统返回手势 / 拔电 / 展开，而不是点一下屏幕。
+     */
     public static boolean hideOnTap(Context c) {
-        return sp(c).getBoolean("hide_on_tap", true);
-    }
-
-    public static void setHideOnTap(Context c, boolean v) {
-        putBoolean(c, "hide_on_tap", v);
+        return false;
     }
 
     // ---- 显示 ----
+    // 以下各项不再暴露开关，固定成定稿默认值（避免"设置项一堆但实测没作用"）。
 
+    /** 固定模拟表盘 */
     public static int clockStyle(Context c) {
-        return sp(c).getInt("clock_style", STYLE_ANALOG);
+        return STYLE_ANALOG;
     }
 
-    public static void setClockStyle(Context c, int v) {
-        putInt(c, "clock_style", v);
-    }
-
+    /** 固定显示秒针 */
     public static boolean showSeconds(Context c) {
-        return sp(c).getBoolean("show_seconds", true);
+        return true;
     }
 
-    public static void setShowSeconds(Context c, boolean v) {
-        putBoolean(c, "show_seconds", v);
-    }
-
+    /** 固定 24 小时制（仅数字表盘用得到） */
     public static boolean use24h(Context c) {
-        return sp(c).getBoolean("use_24h", true);
+        return true;
     }
 
-    public static void setUse24h(Context c, boolean v) {
-        putBoolean(c, "use_24h", v);
-    }
-
+    /** 固定显示农历 */
     public static boolean showLunar(Context c) {
-        return sp(c).getBoolean("show_lunar", true);
+        return true;
     }
 
-    public static void setShowLunar(Context c, boolean v) {
-        putBoolean(c, "show_lunar", v);
-    }
-
+    /** 固定显示日历面板（用户确认：默认开启，不留开关） */
     public static boolean showCalendar(Context c) {
-        return sp(c).getBoolean("show_calendar", true);
+        return true;
     }
 
-    public static void setShowCalendar(Context c, boolean v) {
-        putBoolean(c, "show_calendar", v);
-    }
-
+    /** 固定不显示状态行 */
     public static boolean showStatusLine(Context c) {
-        return sp(c).getBoolean("show_status", false);
+        return false;
     }
 
-    public static void setShowStatusLine(Context c, boolean v) {
-        putBoolean(c, "show_status", v);
-    }
-
+    /** 固定开启防烧屏像素位移 */
     public static boolean burnIn(Context c) {
-        return sp(c).getBoolean("burn_in", true);
+        return true;
     }
 
-    public static void setBurnIn(Context c, boolean v) {
-        putBoolean(c, "burn_in", v);
-    }
-
+    /** 固定保持常亮 */
     public static boolean keepScreenOn(Context c) {
-        return sp(c).getBoolean("keep_screen_on", true);
-    }
-
-    public static void setKeepScreenOn(Context c, boolean v) {
-        putBoolean(c, "keep_screen_on", v);
+        return true;
     }
 
     /** 伪 AOD 亮度，百分比 1..100 */

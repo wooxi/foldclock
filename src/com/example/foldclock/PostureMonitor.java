@@ -61,6 +61,8 @@ public final class PostureMonitor implements SensorEventListener {
 
     private int lastRotation = -1;
     private long lastAt = 0L;
+    /** 任何一帧传感器数据（含平放）到达的时刻 */
+    private long lastAnyAt = 0L;
     /** 当前读数是不是「平放」——平放时横竖没有意义 */
     private boolean flat = true;
 
@@ -105,6 +107,27 @@ public final class PostureMonitor implements SensorEventListener {
 
     public boolean hasFresh() {
         return lastRotation >= 0 && SystemClock.elapsedRealtime() - lastAt < FRESH_MS;
+    }
+
+    /** 当前读数是不是"平放"（横竖无意义）。自检面板用。 */
+    public boolean isFlat() {
+        return flat;
+    }
+
+    /** 缓存年龄（毫秒）；-1 = 从来没读到过有效姿态。自检面板用。 */
+    public long cacheAgeMs() {
+        return lastAt == 0 ? -1 : SystemClock.elapsedRealtime() - lastAt;
+    }
+
+    /**
+     * 最近有没有收到过**任何**一帧传感器数据（平放也算）。
+     *
+     * 用来区分两种"姿态=-1"：
+     *  - 平放：传感器在持续投递，只是横竖无意义 → 这是真结论，不该重复触发主动取样；
+     *  - AP 刚被唤醒、缓存是几十秒前的：根本没收到帧 → 该主动取一次。
+     */
+    public boolean hasRecentEvent() {
+        return lastAnyAt > 0 && SystemClock.elapsedRealtime() - lastAnyAt < FRESH_MS;
     }
 
     /**
@@ -208,6 +231,7 @@ public final class PostureMonitor implements SensorEventListener {
         if (event.sensor.getType() != Sensor.TYPE_ACCELEROMETER) return;
         if (event.values == null || event.values.length < 3) return;
 
+        lastAnyAt = SystemClock.elapsedRealtime();
         gx = event.values[0];
         gy = event.values[1];
         gz = event.values[2];
@@ -226,12 +250,33 @@ public final class PostureMonitor implements SensorEventListener {
         notifyIfChanged(currentRotation());
     }
 
-    /** 姿态变了才通知，并且要稳定 CHANGE_DEBOUNCE_MS 才发出去（防抖）。 */
+    /**
+     * 姿态变了才通知。
+     *
+     * 三种情况分开处理：
+     *  ① 竖屏 ↔ 平放：两者结论都是"不显示"，**根本不通知**。
+     *     手持看屏幕时重力会在两者之间来回抖（实测每 200ms 跳一次），
+     *     通知出去只会让服务反复 evaluate、把日志刷满。
+     *  ② 离开横放（横 → 竖/平）：**立刻通知**（0ms）。手机一转，系统会先把屏幕转过去，
+     *     而我们的内容还是按旧姿态摆的，延迟这 400ms 就会看到"竖屏里塞着横屏时钟"再消失。
+     *  ③ 进入横放：稳 400ms 再通知，避免晃一下就弹。
+     */
     private void notifyIfChanged(int rotation) {
         if (rotation == pendingRotation) return;
+        boolean wasLandscape = isLandscape(pendingRotation);
+        boolean nowLandscape = isLandscape(rotation);
         pendingRotation = rotation;
         handler.removeCallbacks(changeNotifier);
-        handler.postDelayed(changeNotifier, CHANGE_DEBOUNCE_MS);
+        if (!wasLandscape && !nowLandscape) {
+            // 静默更新，不打扰监听者
+            notifiedRotation = rotation;
+            return;
+        }
+        handler.postDelayed(changeNotifier, nowLandscape ? CHANGE_DEBOUNCE_MS : 0L);
+    }
+
+    private static boolean isLandscape(int rotation) {
+        return rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270;
     }
 
     @Override

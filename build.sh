@@ -1,6 +1,6 @@
 #!/system/bin/sh
 # ============================================================
-#  外屏时钟 FoldClock v1.4.3 —— 一键构建
+#  外屏时钟 FoldClock v1.4.4 —— 一键构建
 #
 #  两种跑法都行：
 #    A) 在这台机器自带的工具链下（不需要 Termux / root / Shizuku）：
@@ -8,7 +8,7 @@
 #    B) 在 Termux 里：
 #         bash /sdcard/Download/FoldClock/源码重建/build.sh
 #
-#  产物：build/FoldClock-v1.4.3.apk（同时复制到 /sdcard/Download/）
+#  产物：build/FoldClock-v1.4.4.apk（同时复制到 /sdcard/Download/）
 #
 #  可选环境变量：AJAR  KS  KSPASS  ALIAS
 #  KSPASS 必须由外面传入或交互输入，脚本里不保存任何口令。
@@ -19,7 +19,7 @@ DH=/data/user/0/com.deepseek.harness.compat/files
 PROJ=$(cd "$(dirname "$0")" && pwd)
 cd "$PROJ"
 
-VERNAME=1.4.3
+VERNAME=1.4.4
 VERCODE=19
 OUTNAME=FoldClock-v${VERNAME}.apk
 

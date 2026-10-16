@@ -42,6 +42,8 @@ public class StandByView extends FrameLayout {
 
     /** 防烧屏平移周期 */
     private static final long SHIFT_MS = 15000L;
+    /** 像素偏移的过渡时长：让"每 15 秒挪 1 像素"平滑过去，而不是硬跳一下 */
+    private static final long SHIFT_ANIM_MS = 400L;
 
     /**
      * 出现动画时长：整体淡入 + 舞台 0.97→1.0 轻微放大。
@@ -62,11 +64,40 @@ public class StandByView extends FrameLayout {
     private View clock;
     private View calendar;
 
+    /** 返回键 / 侧滑手势退出。悬浮窗不在 Activity 栈里，收不到 onBackPressed，只能自己听按键。 */
+    public interface OnBackListener {
+        void onBack();
+    }
+
+    private OnBackListener backListener;
+
+    public void setOnBackListener(OnBackListener l) {
+        backListener = l;
+        setFocusableInTouchMode(true);
+        requestFocus();
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (event != null
+                && event.getKeyCode() == android.view.KeyEvent.KEYCODE_BACK
+                && event.getAction() == android.view.KeyEvent.ACTION_UP
+                && backListener != null) {
+            backListener.onBack();
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
     /** 期望的内容方向（Surface.ROTATION_*）；-1 = 跟随屏幕方向 */
     private int desiredRotation = -1;
     private int stageW = -1;
     private int stageH = -1;
     private int stageRot = -1;
+    /** 正在播退出动画：期间锁住排版，避免转屏时内容重排闪一下 */
+    private boolean leaving;
+    /** 出现时不做透明渐入（设置页返回场景） */
+    private boolean instantEnter;
 
     private int shiftStep;
     private int lastW = -1;
@@ -167,6 +198,10 @@ public class StandByView extends FrameLayout {
     /** 按「想要的朝向 - 屏幕实际朝向」摆放舞台。只在真的变了的时候动，避免反复 requestLayout。 */
     private void applyStageGeometry(int w, int h) {
         if (w <= 0 || h <= 0) return;
+        // ★ 正在淡出：锁住排版不动。
+        //   转竖屏那一下系统会先把屏幕转过去，如果我们这时跟着新尺寸重排，
+        //   屏幕上就会闪一下"竖屏里塞着的横屏时钟"。退出期间保持原样，纯淡出。
+        if (leaving) return;
 
         int displayRot = 0;
         Display d = getDisplay();
@@ -233,10 +268,39 @@ public class StandByView extends FrameLayout {
         gear.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
-                Intent i = new Intent(v.getContext(), SettingsActivity.class);
+                Log.i(TAG, "齿轮被点击 → 收起时钟并打开设置页");
+                Context ctx = v.getContext();
+                // ★ 通知服务"设置页要来了"，但**不要**让时钟立刻消失：
+                //   服务会继续用它遮罩 SETTINGS_COVER_MS，把系统那段"设置页滑入"动画盖在后面，
+                //   等设置页落定再淡出 —— 否则滑动过程中会露出底下的系统页面。
+                //   万一设置页没起来，服务也会在遮罩结束后把时钟收掉，不会留下死局。
+                try {
+                    com.example.foldclock.AutoLaunchService.sendCommand(
+                            ctx, com.example.foldclock.AutoLaunchService.ACTION_UI_ON);
+                } catch (Throwable ignored) {
+                }
+                Intent i = new Intent(ctx, SettingsActivity.class);
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 try {
-                    v.getContext().startActivity(i);
+                    // 关键：用 makeCustomAnimation(ctx, 0, 0) 显式声明"没有转场动画"。
+                    // 主题里的 activityOpen* 只覆盖同任务内的 Activity 转场；
+                    // 从悬浮窗（服务）用 NEW_TASK 打开设置页走的是**任务级转场**，
+                    // 那一层仍然会用系统默认的滑动动画，过程中会露出底部页面。
+                    android.app.ActivityOptions ao =
+                            android.app.ActivityOptions.makeCustomAnimation(ctx, 0, 0);
+                    if (android.os.Build.VERSION.SDK_INT >= 34) {
+                        // 同时显式把自己的"后台启动界面"特权委托出去（AOSP 认可的写法），
+                        // 裸 startActivity 在部分 ROM 上会被静默拦掉。
+                        ao.setPendingIntentBackgroundActivityStartMode(
+                                android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                        android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
+                                ctx, 0x51, i,
+                                android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                                        | android.app.PendingIntent.FLAG_IMMUTABLE);
+                        pi.send(ctx, 0, null, null, null, null, ao.toBundle());
+                    } else {
+                        ctx.startActivity(i, ao.toBundle());
+                    }
                 } catch (Throwable t) {
                     Log.w(TAG, "打开设置页失败", t);
                 }
@@ -255,8 +319,19 @@ public class StandByView extends FrameLayout {
      * 淡的是**根视图**（`setAlpha`），所以连黑底一起淡 —— 只淡内容的话，会先「啪」地
      * 盖上一层黑，再看到时钟淡出来。缩放只给舞台（时钟/日历），黑底不缩，
      * 所以边缘不会露出后面的桌面。
+     *
+     * 例外：{@link #setInstantEnter(boolean)} 打开时直接就位、不做渐入。
+     * 从设置页返回属于这种场景 —— 渐变过程中会先露出下面的系统页面，反而突兀。
      */
     public void playEnter() {
+        leaving = false;
+        stage.setAlpha(1f);
+        if (instantEnter) {
+            setAlpha(1f);
+            stage.setScaleX(1f);
+            stage.setScaleY(1f);
+            return;
+        }
         setAlpha(0f);
         stage.setScaleX(0.97f);
         stage.setScaleY(0.97f);
@@ -270,8 +345,17 @@ public class StandByView extends FrameLayout {
                 .start();
     }
 
-    /** 退出动画：整块淡出 + 舞台轻微缩小；动画结束（或被取消的兜底）由宿主移除窗口。 */
+    /** true = 出现时不做透明渐入，直接就位（设置页返回场景）。 */
+    public void setInstantEnter(boolean instant) {
+        instantEnter = instant;
+    }
+
+    /**
+     * 退出动画：整块淡出（窗口是 TRANSLUCENT，所以是真的露出下面的系统界面），
+     * 退出期间锁住排版，不让转屏把内容重排一次。
+     */
     public void playExit() {
+        leaving = true;
         animate().alpha(0f)
                 .setDuration(EXIT_MS)
                 .setInterpolator(new AccelerateDecelerateInterpolator())
@@ -308,6 +392,11 @@ public class StandByView extends FrameLayout {
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
+        // 悬浮窗要接返回键，必须在挂上窗口之后再要一次焦点
+        if (backListener != null) {
+            setFocusableInTouchMode(true);
+            requestFocus();
+        }
         handler.removeCallbacks(shifter);
         if (burnIn) {
             handler.postDelayed(shifter, SHIFT_MS);
@@ -325,11 +414,10 @@ public class StandByView extends FrameLayout {
         shiftStep = (shiftStep + 1) % 4;
         float dx = (shiftStep == 1 || shiftStep == 2) ? 1f : 0f;
         float dy = (shiftStep >= 2) ? 1f : 0f;
-        content.setTranslationX(dx);
-        content.setTranslationY(dy);
-        if (status != null) {
-            status.setTranslationX(dx);
-            status.setTranslationY(dy);
-        }
+        // 平移整个舞台（含右上角齿轮）：以前只挪 content/status，静止的齿轮字形
+        // 反而成了长时间显示下唯一会烧屏的像素。
+        // 同时平滑挪过去、不要硬跳 —— 1 像素的瞬时位移在画面边缘能看出"抖一下"。
+        stage.animate().translationX(dx).translationY(dy)
+                .setDuration(SHIFT_ANIM_MS).start();
     }
 }

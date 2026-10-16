@@ -6,6 +6,8 @@
     <!-- 通知 -->
     <string name="notif_channel_name">外屏时钟常驻</string>
     <string name="notif_channel_desc">前台服务所需的常驻通知（可在系统设置里关闭）</string>
+    <string name="notif_channel_lock_name">锁屏时唤起时钟</string>
+    <string name="notif_channel_lock_desc">锁屏状态下插电时，用系统全屏通知把时钟界面拉到锁屏之上（系统闹钟用的是同一机制）</string>
     <string name="notif_title">外屏时钟</string>
     <string name="notif_text_running">监听中：充电合盖时自动显示</string>
     <string name="notif_text_showing">外屏时钟显示中</string>
@@ -18,6 +20,10 @@
     <string name="sec_display">显示</string>
     <string name="sec_behavior">行为</string>
     <string name="sec_status">自检</string>
+    <string name="sec_about">关于</string>
+    <string name="about_version">外屏时钟 %1$s</string>
+    <string name="btn_open_release">打开发布页</string>
+    <string name="release_url" translatable="false">https://github.com/roamroid/foldclock/releases</string>
 
     <!-- 自动弹出 -->
     <string name="item_auto_launch">自动在外屏启动时钟</string>
@@ -37,11 +43,11 @@
     <string name="perm_boot">自启动（开机自动恢复）</string>
     <string name="perm_boot_desc">不开的话，重启手机后自动弹出会失效</string>
     <string name="perm_bg_popup">后台弹出界面</string>
-    <string name="perm_bg_popup_desc">HyperOS 专有；只选「仅悬浮窗」时不需要</string>
+    <string name="perm_bg_popup_desc">HyperOS 专有：这里要同时打开「后台弹出界面」和「锁屏显示」，锁屏状态下插电才能弹出来</string>
     <string name="perm_battery">电池优化设为「无限制」</string>
     <string name="perm_battery_desc">避免常驻服务被系统回收</string>
-    <string name="perm_dream">设为系统屏保（DreamService）</string>
-    <string name="perm_dream_desc">系统在充电闲置时自己拉起，最稳的一条路</string>
+    <string name="perm_dream">设为系统屏保（DreamService，可选用）</string>
+    <string name="perm_dream_desc">只在支持屏保的系统上生效。自带「息屏显示」的机型（如 HyperOS）由系统 AOD 接管，不会触发</string>
     <string name="btn_grant">去授权</string>
     <string name="btn_settings">去开启</string>
     <string name="state_granted">已授权</string>

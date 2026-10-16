@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.foldclock"
-    android:versionCode="19"
-    android:versionName="1.4.3">
+    android:versionCode="20"
+    android:versionName="1.4.4">
 
     <uses-sdk
         android:minSdkVersion="32"
@@ -12,6 +12,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 锁屏下用"全屏通知"把时钟界面拉到锁屏之上（系统闹钟同一机制），
+         Android 14+ 需要用户在系统里允许（我们会在自检里显示状态） -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -67,6 +70,7 @@
             android:name=".SettingsActivity"
             android:exported="false"
             android:excludeFromRecents="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.FoldClock.Settings" />
 
         <service
