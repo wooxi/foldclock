@@ -7,9 +7,7 @@
 
 ![外屏时钟](screenshots/cover.png)
 
-| 设置 · 自动弹出 / 权限引导 | 设置 · 显示与行为 |
-|---|---|
-| ![设置](screenshots/settings-autolaunch.jpg) | ![显示](screenshots/settings-display.jpg) |
+<img src="screenshots/settings.jpg" width="360" alt="设置页">
 
 ## 功能
 

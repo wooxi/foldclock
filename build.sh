@@ -20,7 +20,7 @@ PROJ=$(cd "$(dirname "$0")" && pwd)
 cd "$PROJ"
 
 VERNAME=1.4.4
-VERCODE=19
+VERCODE=20
 OUTNAME=FoldClock-v${VERNAME}.apk
 
 TZ=${TZ:-Asia/Shanghai}
