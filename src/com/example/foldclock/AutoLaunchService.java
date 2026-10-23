@@ -543,12 +543,14 @@ public class AutoLaunchService extends Service {
             if (!userDismissed) scheduleShow(why + "/no-fold");
             return;
         }
-        if (coverOnly) {
-            if (!userDismissed) scheduleShow(why + "/folded");
-        } else {
+        // ★ v2 改动：内外屏都显示。
+        //   原版展开（内屏）就收起，现在只要「插电 + 横放」就显示，不管合着还是展开。
+        //   合盖/展开的变化仍然只用来解除「用户手动关掉」的抑制（见方法开头的 lastFolded）。
+        if (userDismissed) {
             cancelPendingShow();
-            hideIf("opened");
+            return;
         }
+        scheduleShow(why + (coverOnly ? "/folded" : "/opened"));
     }
 
     /**

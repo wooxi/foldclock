@@ -574,9 +574,14 @@ public final class OverlayClock {
             return null;
         }
 
-        Display biggest = null;      // 面积最大 = 内屏
-        long biggestArea = -1L;
-        Display smallest = null;     // 非最大里 id 最小的 = 优先外屏
+        // ★ v2 改动：内外屏都要支持，所以不再「固定优先外屏」，
+        //   改成「优先当前真正亮着的那块屏」。
+        //   折叠时：外屏 ON、内屏 OFF/doze → 选中外屏
+        //   展开时：内屏 ON、外屏 OFF       → 选中内屏
+        //   若一块 ON 的都没有（例如外屏处于 doze），退回旧策略：取 id 最小的那块（通常是外屏）。
+        Display onLargest = null;     // 亮着的里面面积最大 = 当前正在用的那块
+        long onArea = -1L;
+        Display smallest = null;      // 兜底：非 OFF 里 id 最小
         for (Display d : all) {
             if (d == null) continue;
             int state;
@@ -598,30 +603,16 @@ public final class OverlayClock {
                 area = (long) p.x * (long) p.y;
             } catch (Throwable ignored) {
             }
-            if (area > biggestArea) {
-                biggestArea = area;
-                biggest = d;
+            if (state == Display.STATE_ON && area > onArea) {
+                onArea = area;
+                onLargest = d;
             }
             if (smallest == null || d.getDisplayId() < smallest.getDisplayId()) {
                 smallest = d;
             }
         }
-        if (smallest == null) return null;
-        if (biggest == null || smallest == biggest) return smallest;
-        // 把"最大那块"排除后，再取 id 最小的
-        Display best = null;
-        for (Display d : all) {
-            if (d == null || d == biggest) continue;
-            try {
-                if (d.getState() == Display.STATE_OFF) continue;
-                if ((d.getFlags() & Display.FLAG_PRIVATE) != 0) continue;
-            } catch (Throwable ignored) {
-            }
-            if (best == null || d.getDisplayId() < best.getDisplayId()) {
-                best = d;
-            }
-        }
-        return best != null ? best : smallest;
+        if (onLargest != null) return onLargest;
+        return smallest;
     }
 
     /** 已经显示时，姿态变了就地把内容转过去（否则会一直保持插电那一刻的方向）。 */

@@ -19,8 +19,8 @@ DH=/data/user/0/com.deepseek.harness.compat/files
 PROJ=$(cd "$(dirname "$0")" && pwd)
 cd "$PROJ"
 
-VERNAME=1.4.4
-VERCODE=20
+VERNAME=1.5.0-oc1
+VERCODE=21
 OUTNAME=FoldClock-v${VERNAME}.apk
 
 TZ=${TZ:-Asia/Shanghai}
